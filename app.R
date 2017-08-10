@@ -32,7 +32,7 @@ espg <- 3083 # main plot espg
 wsg84String <- '+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs'
 
 ## area selection map
-adm1 <- st_read('resources/ne_10m_admin_1_states_provinces')
+adm1 <- st_read('resources/ne_10m_admin_1_states_provinces_lakes')
 adm1 <- st_transform(adm1, espg)
 usAdm1 <- adm1[adm1 $iso_a2=='US', ]
 usAdm1 <- with(usAdm1, usAdm1[order(name), ]) # 4-color assignment is in alpha order
@@ -70,24 +70,25 @@ coords <- function(payload) {
 }
 
 ## st_bbox methods
-xlim <- function(bbox) { # expandrange of bbox to match plot dimensions
-    ylen <- abs(bbox[2]-bbox[4])
-    xlen <- abs(bbox[1]-bbox[3])
-    extendrange(bbox[c(1, 3)], f=(plotWidth/plotHeight * ylen/xlen)-1)
-}
+xlim <- function(bbox) extendrange(bbox[c(1, 3)], f=limBuff)
 ylim <- function(bbox) extendrange(bbox[c(2, 4)], f=limBuff)
-aabb <- function(bbox) {
-        xlim <- xlim(bbox)
-        ylim <- ylim(bbox)
-        x <- c(1, 1, 2, 2, 1)
-        y <- c(1, 2, 2, 1, 1)
-        st_sfc(st_polygon(list(cbind(xlim[x], ylim[y]))), crs=espg)
+aabb <- function(bbox) { # a bbox reproportioned to match plot dimensions
+    xlim <- xlim(bbox)
+    ylim <- ylim(bbox)
+    xlen <- abs(xlim[1]-xlim[2])
+    ylen <- abs(ylim[1]-ylim[2])
+    if(xlen/ylen < plotWidth/plotHeight) {
+        xlim <- extendrange(xlim, f=(plotWidth/plotHeight * ylen/xlen)-1)
+    } else ylim <- extendrange(ylim, f=(plotHeight/plotWidth * xlen/ylen)-1)
+    x <- c(1, 1, 2, 2, 1)
+    y <- c(1, 2, 2, 1, 1)
+    st_sfc(st_polygon(list(cbind(xlim[x], ylim[y]))), crs=espg)
 }
 
 
 ## ui
 ui <- fluidPage(
-    titlePanel(div('hlwx. powered by',
+    titlePanel(div('hlwx: powered by',
                    tags $img(height=64, src='wundergroundLogo_4c_horz.jpg')),
                windowTitle='hlwx'),
     sidebarLayout(
@@ -112,7 +113,7 @@ ui <- fluidPage(
                 tabPanel(
                     "Analyze",
                     textInput(inputId='res', label='resolution in meters', width='128px',
-                              value='30', placeholder='30'),
+                              value='100', placeholder='100'),
                     radioButtons(inputId='y', label='metric', choices=choices, selected='temp_f'),
                     actionButton(inputId='analyze', label='analyze')
                 ),
@@ -272,18 +273,17 @@ server <- function(input, output) {
                        payload <- GETgeolookup()
                        coords <- coords(payload)
                        bbox <- st_bbox(coords)
-                       xlim <- xlim(bbox)
-                       ylim <- ylim(bbox)
-                       osm <- GETosm(aabb(bbox))
+                       aabb <- aabb(bbox)
+                       osm <- GETosm(aabb)
                        primary <- with(osm $osm_lines, # highways[4]:=primary
-                                       osm $osm_lines[highway %in% highways[1:4], ])
-                       plot(usAdm1[, 'color'], xlim=xlim, ylim=ylim,
+                                       osm $osm_lines[highway %in% highways[1:5], ])
+                       plot(usAdm1[, 'color'], xlim=bbox[c(1, 3)], ylim=bbox[c(2, 4)],
                             col=col, main=NA, border=NA, graticule=st_crs(4326), axes=TRUE, lwd.tick=0)
                        plot(coords, pch=13, cex=2, col=1, add=TRUE)
                        plot(st_transform(primary, espg), col='grey50', add=TRUE)
                    } else { # viewing state
                        bbox <- st_bbox(usAdm1[rV $main, ])
-                       plot(usAdm1[, 'color'], xlim=xlim(bbox), ylim=ylim(bbox),
+                       plot(usAdm1[, 'color'], xlim=bbox[c(1, 3)], ylim=bbox[c(2, 4)],
                             col=col, main=NA, border=NA, graticule=st_crs(4326), axes=TRUE, lwd.tick=0)
                    }
                    if(!(is.na(rV $id) && length(rV $main)==nstates)) { # if > adm0, add city names
@@ -295,13 +295,12 @@ server <- function(input, output) {
                    m <- analyze()
                    coords <- coords(payload)
                    bbox <- st_bbox(coords)
-                   xlim <- xlim(bbox)
-                   ylim <- ylim(bbox)
-                   osm <- GETosm(aabb(bbox))
+                   aabb <- aabb(bbox)
+                   osm <- GETosm(aabb)
                    primary <- with(osm $osm_lines,
                                    osm $osm_lines[highway %in% highways, ])
                    layout(matrix(1:2, nrow=1), widths=c(5, 1))
-                   plot(st_transform(primary, espg), xlim=xlim, ylim=ylim,
+                   plot(st_geometry(st_transform(primary, espg)), xlim=bbox[c(1, 3)], ylim=bbox[c(2, 4)],
                         col='grey50', axes=TRUE)
                    plot(m, col=bpy.colors(alpha=0.5), what='image', add=TRUE)
                    plot(coords, pch=13, cex=2, col='chartreuse', add=TRUE)
