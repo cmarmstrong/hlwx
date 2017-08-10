@@ -64,28 +64,25 @@ WUpath <- function(feature, id, format) {
 
 ## geolookup payload methods
 ## TODO: add airports to coords
-coords <- function(payload) with(payload $location $nearby_weather_stations $pws,
-                                 st_transform( # this is why magrittr pipe
-                                     st_sfc(
-                                         st_multipoint(
-                                             as.matrix(station[, c('lon', 'lat')])),
-                                         crs=4326),
-                                     espg)
-                                 )
-aabb <- function(payload) st_make_grid(coords(payload), n=1)
-
-## st_bbox methods
-bbox <- function(bbox) {
-    ylen <- abs(bbox[2]-bbox[4])
-    xlen <- abs(bbox[1]-bbox[3])
-    xnewlen <- xlen * plotWidth/plotHeight * ylen/xlen
-    ylim <- extendrange(bbox[c(2, 4)], f=limBuff)
-    xlim <- extendrange(bbox[c(1, 3)], (xnewlen-xlen)/xlen) # (pw/pH * ylen/xlen) / xlen
+coords <- function(payload) {
+    with(payload $location $nearby_weather_stations $pws,
+         st_transform(st_sfc(st_multipoint(as.matrix(station[, c('lon', 'lat')])), crs=4326), espg))
 }
 
-buff <- function(bbox) max(abs(c(bbox[1]-bbox[3], bbox[2]-bbox[4])) * limBuff) / 2
-xlim <- function(bbox, buff=0) bbox[c(1, 3)] + c(-buff, buff)
-ylim <- function(bbox, buff=0) bbox[c(2, 4)] + c(-buff, buff)
+## st_bbox methods
+xlim <- function(bbox) { # expandrange of bbox to match plot dimensions
+    ylen <- abs(bbox[2]-bbox[4])
+    xlen <- abs(bbox[1]-bbox[3])
+    extendrange(bbox[c(1, 3)], f=(plotWidth/plotHeight * ylen/xlen)-1)
+}
+ylim <- function(bbox) extendrange(bbox[c(2, 4)], f=limBuff)
+aabb <- function(bbox) {
+        xlim <- xlim(bbox)
+        ylim <- ylim(bbox)
+        x <- c(1, 1, 2, 2, 1)
+        y <- c(1, 2, 2, 1, 1)
+        st_sfc(st_polygon(list(cbind(xlim[x], ylim[y]))), crs=espg)
+}
 
 
 ## ui
@@ -224,11 +221,12 @@ server <- function(input, output) {
         shiny::validate(need(!is.null(rV $conditions), 'get or upload conditions'))
         rV $conditions
     })
-    
+    ## analysis
     analyze <- eventReactive(input $analyze, {
         payload <- GETgeolookup()
         conditions <- GETconditions()
-        g <- st_make_grid(aabb(payload), cellsize=as.numeric(input $res), what='corners')
+        bbox <- st_bbox(coords(payload))
+        g <- st_make_grid(aabb(bbox), cellsize=as.numeric(input $res), what='corners')
         s <- as(g, 'Spatial') # 'SpatialGridDataFrame' or 'SpatialPixelsDataFrame'
         gridded(s) <- TRUE
         conditions <- sapply(conditions[seq(2, length(conditions), 2)], function(obs) {
@@ -262,7 +260,7 @@ server <- function(input, output) {
                          zip=zip,
                          'lat lon'=paste0(lat, ' ', lon),
                          n=nrow(nearby_weather_stations $pws $station),
-                         'km^2'=st_area(st_transform(aabb(payload), 4326))/1e6
+                         'km^2'=st_area(st_transform(aabb(st_bbox(coords(payload))), 4326))/1e6
                          ))
              )
     }, rownames=TRUE, colnames=FALSE)
@@ -274,23 +272,19 @@ server <- function(input, output) {
                        payload <- GETgeolookup()
                        coords <- coords(payload)
                        bbox <- st_bbox(coords)
-                       buff <- buff(bbox)
-                       xlim <- xlim(bbox, buff)
-                       ylim <- ylim(bbox, buff)
-                       osm <- GETosm(st_buffer(coords, buff))
+                       xlim <- xlim(bbox)
+                       ylim <- ylim(bbox)
+                       osm <- GETosm(aabb(bbox))
                        primary <- with(osm $osm_lines, # highways[4]:=primary
                                        osm $osm_lines[highway %in% highways[1:4], ])
                        plot(usAdm1[, 'color'], xlim=xlim, ylim=ylim,
-                            col=col, main=NA, border=NA, graticule=st_crs(4326), axes=TRUE)
+                            col=col, main=NA, border=NA, graticule=st_crs(4326), axes=TRUE, lwd.tick=0)
                        plot(coords, pch=13, cex=2, col=1, add=TRUE)
                        plot(st_transform(primary, espg), col='grey50', add=TRUE)
                    } else { # viewing state
-                       ## aabb <- st_make_grid(usAdm1[rV $main, ], n=1)
-                       ## plot(aabb, lty=0, graticule=st_crs(4326), axes=TRUE)
                        bbox <- st_bbox(usAdm1[rV $main, ])
-                       buff <- buff(bbox)
-                       plot(usAdm1[, 'color'], xlim=xlim(bbox, buff), ylim=ylim(bbox, buff),
-                            col=col, main=NA, border=NA, graticule=st_crs(4326), axes=TRUE)
+                       plot(usAdm1[, 'color'], xlim=xlim(bbox), ylim=ylim(bbox),
+                            col=col, main=NA, border=NA, graticule=st_crs(4326), axes=TRUE, lwd.tick=0)
                    }
                    if(!(is.na(rV $id) && length(rV $main)==nstates)) { # if > adm0, add city names
                        text(st_coordinates(cities), labels=cities $NAME)
@@ -300,13 +294,15 @@ server <- function(input, output) {
                    payload <- GETgeolookup()
                    m <- analyze()
                    coords <- coords(payload)
-                   aabb <- aabb(payload)
-                   osm <- GETosm(aabb)
+                   bbox <- st_bbox(coords)
+                   xlim <- xlim(bbox)
+                   ylim <- ylim(bbox)
+                   osm <- GETosm(aabb(bbox))
                    primary <- with(osm $osm_lines,
                                    osm $osm_lines[highway %in% highways, ])
                    layout(matrix(1:2, nrow=1), widths=c(5, 1))
-                   plot(aabb, lty=0, axes=TRUE)
-                   plot(st_transform(primary, espg), col='grey50', add=TRUE)
+                   plot(st_transform(primary, espg), xlim=xlim, ylim=ylim,
+                        col='grey50', axes=TRUE)
                    plot(m, col=bpy.colors(alpha=0.5), what='image', add=TRUE)
                    plot(coords, pch=13, cex=2, col='chartreuse', add=TRUE)
                    plot(m, col=bpy.colors(alpha=0.5), what='scale')
