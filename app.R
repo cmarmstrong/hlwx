@@ -22,8 +22,9 @@ url <- 'http://api.wunderground.com'
 choices <- c('temp_f', 'wind_mph')
 highways <- c('motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'unclassified', 'residential')
 ## usTerritories <- c(33, 54, 55) # only necessary with US census maps
-nstates <- 51 # for selecting all states+DC from gadm
+nstates <- 51 # for selecting all states+DC from naturalearth
 ## plot
+limBuff <- 0.04
 plotWidth <- 960
 plotHeight <- 600
 ## CRS
@@ -64,7 +65,7 @@ WUpath <- function(feature, id, format) {
 ## geolookup payload methods
 ## TODO: add airports to coords
 coords <- function(payload) with(payload $location $nearby_weather_stations $pws,
-                                 st_transform(
+                                 st_transform( # this is why magrittr pipe
                                      st_sfc(
                                          st_multipoint(
                                              as.matrix(station[, c('lon', 'lat')])),
@@ -72,6 +73,19 @@ coords <- function(payload) with(payload $location $nearby_weather_stations $pws
                                      espg)
                                  )
 aabb <- function(payload) st_make_grid(coords(payload), n=1)
+
+## st_bbox methods
+bbox <- function(bbox) {
+    ylen <- abs(bbox[2]-bbox[4])
+    xlen <- abs(bbox[1]-bbox[3])
+    xnewlen <- xlen * plotWidth/plotHeight * ylen/xlen
+    ylim <- extendrange(bbox[c(2, 4)], f=limBuff)
+    xlim <- extendrange(bbox[c(1, 3)], (xnewlen-xlen)/xlen) # (pw/pH * ylen/xlen) / xlen
+}
+
+buff <- function(bbox) max(abs(c(bbox[1]-bbox[3], bbox[2]-bbox[4])) * limBuff) / 2
+xlim <- function(bbox, buff=0) bbox[c(1, 3)] + c(-buff, buff)
+ylim <- function(bbox, buff=0) bbox[c(2, 4)] + c(-buff, buff)
 
 
 ## ui
@@ -85,7 +99,7 @@ ui <- fluidPage(
                 tabPanel(
                     "Data",
                     div(style='display:inline-block',
-                        textInput(inputId='zip', label='state/city_name or zip code', width='400px',
+                        textInput(inputId='zip', label='state/city_name or zip code', width='320px',
                                   value='AR/Little_Rock', placeholder='AR/Little_Rock')),
                     div(style='display:inline-block',
                         actionButton(inputId='geolookup', label='geolookup')),
@@ -258,20 +272,27 @@ server <- function(input, output) {
                Data={          #       add north arrow
                    if(!is.na(rV $id)) { # viewing data
                        payload <- GETgeolookup()
-                       aabb <- aabb(payload)
-                       osm <- GETosm(aabb)
-                       primary <- with(osm $osm_lines,
+                       coords <- coords(payload)
+                       bbox <- st_bbox(coords)
+                       buff <- buff(bbox)
+                       xlim <- xlim(bbox, buff)
+                       ylim <- ylim(bbox, buff)
+                       osm <- GETosm(st_buffer(coords, buff))
+                       primary <- with(osm $osm_lines, # highways[4]:=primary
                                        osm $osm_lines[highway %in% highways[1:4], ])
-                       plot(aabb, lty=0, graticule=st_crs(4326), axes=TRUE) # delimit plot area
-                       plot(usAdm1[, 'color'], col=col, main=NA, border=NA, add=TRUE)
-                       plot(coords(payload), pch=13, cex=2, col=1, add=TRUE)
+                       plot(usAdm1[, 'color'], xlim=xlim, ylim=ylim,
+                            col=col, main=NA, border=NA, graticule=st_crs(4326), axes=TRUE)
+                       plot(coords, pch=13, cex=2, col=1, add=TRUE)
                        plot(st_transform(primary, espg), col='grey50', add=TRUE)
                    } else { # viewing state
-                       aabb <- st_make_grid(usAdm1[rV $main, ], n=1)
-                       plot(aabb, lty=0, graticule=st_crs(4326), axes=TRUE)
-                       plot(usAdm1[, 'color'], col=col, main=NA, border=NA, add=TRUE)
+                       ## aabb <- st_make_grid(usAdm1[rV $main, ], n=1)
+                       ## plot(aabb, lty=0, graticule=st_crs(4326), axes=TRUE)
+                       bbox <- st_bbox(usAdm1[rV $main, ])
+                       buff <- buff(bbox)
+                       plot(usAdm1[, 'color'], xlim=xlim(bbox, buff), ylim=ylim(bbox, buff),
+                            col=col, main=NA, border=NA, graticule=st_crs(4326), axes=TRUE)
                    }
-                   if(!(is.na(rV $id) && length(rV $main)==nstates)) { # if not national, add city names
+                   if(!(is.na(rV $id) && length(rV $main)==nstates)) { # if > adm0, add city names
                        text(st_coordinates(cities), labels=cities $NAME)
                    }
                },
