@@ -12,9 +12,7 @@ library(sp)
 
 
 ## BUGS:
-## highway not found error when no roads found.  skip and plot
-## geolookup does not set rV $main to length==1, and city names not drawn.
-## spaces in city names crash geolookup
+## spaces in city names crash geolookup;  replace with underscores
 
 
 ## constants and globals
@@ -114,7 +112,7 @@ ui <- fluidPage(
                 ),
                 tabPanel(
                     "Analyze",
-                    textInput(inputId='res', label='resolution in meters', width='128px',
+                    textInput(inputId='res', label='resolution in meters', width='140px',
                               value='100', placeholder='100'),
                     radioButtons(inputId='y', label='metric', choices=choices, selected='temp_f'),
                     actionButton(inputId='analyze', label='analyze')
@@ -154,6 +152,7 @@ server <- function(input, output) {
     ##   analyze
     ## output
     ##   download
+    ##   html
     ##   table
     ##   main
 
@@ -254,16 +253,12 @@ server <- function(input, output) {
     output $download <- downloadHandler(
         function() paste0('hlwx-', Sys.Date(), '.rds'),
         function(fname) saveRDS(structure(list(conditions=GETconditions(), id=rV $id), class='hlwx'), fname))
-        ## html
+    ## html
     output $html <- renderUI({
         if(input $sidebar=='Settings') {
             tags $iframe(id='iframe', src=urlKey, height=plotHeight, width=plotWidth)
         }
     })
-    ## info--reacts to hover
-    ## output $info <- renderText({with(input, paste0('y ', input $hover $y,
-    ##                                                ' x ', input $hover $x))
-    ## })
     ## table
     output $table <- renderTable({
         payload <- GETgeolookup()
@@ -287,15 +282,17 @@ server <- function(input, output) {
                        payload <- GETgeolookup()
                        coords <- coords(payload)
                        bbox <- st_bbox(coords)
-                       aabb <- aabb(bbox)
-                       osm <- GETosm(aabb)
-                       primary <- with(osm $osm_lines, # highways[4]:=primary
-                                       osm $osm_lines[highway %in% highways[1:5], ])
                        plot(usAdm1[, 'color'], xlim=bbox[c(1, 3)], ylim=bbox[c(2, 4)],
                             col=col, main=NA, border=NA, graticule=st_crs(4326), axes=TRUE, lwd.tick=0)
                        plot(coords, pch=13, cex=2, col=1, add=TRUE)
-                       plot(st_transform(primary, espg), col='grey50', add=TRUE)
-                   } else { # viewing state
+                       aabb <- aabb(bbox)
+                       osm <- GETosm(aabb)
+                       if(nrow(osm $osm_lines)>0) { # if query is not empty
+                           highways <- with(osm $osm_lines,
+                                            osm $osm_lines[highway %in% highways[1:5], ])
+                           plot(st_transform(highways, espg), col='grey50', add=TRUE)
+                       }
+                   } else {
                        bbox <- st_bbox(usAdm1[rV $main, ])
                        plot(usAdm1[, 'color'], xlim=bbox[c(1, 3)], ylim=bbox[c(2, 4)],
                             col=col, main=NA, border=NA, graticule=st_crs(4326), axes=TRUE, lwd.tick=0)
@@ -311,11 +308,13 @@ server <- function(input, output) {
                    bbox <- st_bbox(coords)
                    aabb <- aabb(bbox)
                    osm <- GETosm(aabb)
-                   primary <- with(osm $osm_lines,
-                                   osm $osm_lines[highway %in% highways, ])
                    layout(matrix(1:2, nrow=1), widths=c(5, 1))
-                   plot(st_geometry(st_transform(primary, espg)), xlim=bbox[c(1, 3)], ylim=bbox[c(2, 4)],
-                        col='grey50', axes=TRUE)
+                   if(nrow(osm $osm_lines)>0) {
+                       highways <- with(osm $osm_lines,
+                                        osm $osm_lines[highway %in% highways, ])
+                       plot(st_geometry(st_transform(highways, espg)), xlim=bbox[c(1, 3)], ylim=bbox[c(2, 4)],
+                            col='grey50', axes=TRUE)
+                   } else ## plot(aabb, lwd=0, xlim=bbox[c(1, 3)], ylim=bbox[c(2, 4)], axes=TRUE)
                    plot(m, col=bpy.colors(alpha=0.5), what='image', add=TRUE)
                    plot(coords, pch=13, cex=2, col='chartreuse', add=TRUE)
                    plot(m, col=bpy.colors(alpha=0.5), what='scale')
