@@ -314,7 +314,7 @@ server <- function(input, output) {
                                         osm $osm_lines[highway %in% highways, ])
                        plot(st_geometry(st_transform(highways, espg)), xlim=bbox[c(1, 3)], ylim=bbox[c(2, 4)],
                             col='grey50', axes=TRUE)
-                   } else ## plot(aabb, lwd=0, xlim=bbox[c(1, 3)], ylim=bbox[c(2, 4)], axes=TRUE)
+                   } ## else ## plot(aabb, lwd=0, xlim=bbox[c(1, 3)], ylim=bbox[c(2, 4)], axes=TRUE)
                    plot(m, col=bpy.colors(alpha=0.5), what='image', add=TRUE)
                    plot(coords, pch=13, cex=2, col='chartreuse', add=TRUE)
                    plot(m, col=bpy.colors(alpha=0.5), what='scale')
