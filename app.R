@@ -13,6 +13,7 @@ library(sp)
 
 ## BUGS:
 ## spaces in city names crash geolookup;  replace with underscores
+## clicking in rural area "incorrect number of dimensions"; problem with empty osm or wu query?
 
 
 ## constants and globals
