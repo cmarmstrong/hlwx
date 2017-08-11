@@ -119,8 +119,8 @@ ui <- fluidPage(
                 ),
                 tabPanel(
                     "Settings",
-                    textInput(inputId='key', label='Wunderground API key', width='256px'),
-                    p('Sign up for a free Wunderground API key.  Click Purchase Key; it\'s free and will not ask you for any payment information.  Input your API key above.  Future versions of hlwx will allow you to save the key on your computer using a cookie.')
+                    textInput(inputId='key', label='Wunderground API key', width='200px'),
+                    p('Sign up for a free Wunderground API key.  Click Purchase Key; it\'s free and will not ask you for any payment information.  Input your API key above.  Future versions of hlwx will allow you to save the key on your computer using a cookie.  If the a webpage to Wunderground\'s API doesn\'t appear in the right panel, then', a('click here to open the webpage in a new browser tab', href=urlKey, target='_blank'))
                 ),
                 id='sidebar'
             )
