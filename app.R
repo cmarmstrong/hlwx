@@ -4,6 +4,7 @@ library(httr)
 library(jsonlite)
 library(osmdata)
 library(RColorBrewer)
+library(rsconnect)
 library(rgdal)
 library(shiny)
 library(sf)
@@ -17,14 +18,15 @@ library(sp)
 
 
 ## constants and globals
-apiKey <- '336ecccce05d4dc4'
+## apiKey <- '336ecccce05d4dc4'
 url <- 'http://api.wunderground.com'
+urlKey <- paste(url, 'weather/api/d/pricing.html', sep='/')
 choices <- c('temp_f', 'wind_mph')
 highways <- c('motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'unclassified', 'residential')
 ## usTerritories <- c(33, 54, 55) # only necessary with US census maps
 nstates <- 51 # for selecting all states+DC from naturalearth
 ## plot
-limBuff <- 0.04
+limBuff <- 0.05
 plotWidth <- 960
 plotHeight <- 600
 ## CRS
@@ -58,8 +60,8 @@ GETosm <- function(aabb, key='.') {
     osmdata_sf(query)
 }
 
-WUpath <- function(feature, id, format) {
-    paste(paste('api', apiKey, feature, 'q', id, sep='/'), format, sep='.')
+WUpath <- function(key, feature, id, format) {
+    paste(paste('api', key, feature, 'q', id, sep='/'), format, sep='.')
 }
 
 ## geolookup payload methods
@@ -88,8 +90,8 @@ aabb <- function(bbox) { # a bbox reproportioned to match plot dimensions
 
 ## ui
 ui <- fluidPage(
-    titlePanel(div('hlwx: powered by',
-                   tags $img(height=64, src='wundergroundLogo_4c_horz.jpg')),
+    titlePanel(div('hlwx ',
+                   tags $img(height=32, src='wundergroundLogo_4c_horz.jpg')),
                windowTitle='hlwx'),
     sidebarLayout(
         sidebarPanel(
@@ -117,10 +119,16 @@ ui <- fluidPage(
                     radioButtons(inputId='y', label='metric', choices=choices, selected='temp_f'),
                     actionButton(inputId='analyze', label='analyze')
                 ),
+                tabPanel(
+                    "Settings",
+                    textInput(inputId='key', label='Wunderground API key', width='256px'),
+                    p('Sign up for a free Wunderground API key.  Click Purchase Key; it\'s free and will not ask you for any payment information.  Input your API key above.  Future versions of hlwx will allow you to save the key on your computer using a cookie.')
+                ),
                 id='sidebar'
             )
         ),
         mainPanel(
+            htmlOutput(outputId='html'),
             plotOutput(outputId='main',
                        click='click',
                        dblclick='dblclick',
@@ -200,7 +208,7 @@ server <- function(input, output) {
                 Sys.sleep(6)
                 detail <- paste0("conditions ", i, " of ", nstations)
                 incProgress(0.9/nstations, detail=detail)
-                path <- WUpath('conditions', paste('pws', id, sep=':'), 'json')
+                path <- WUpath(input $key, 'conditions', paste('pws', id, sep=':'), 'json')
                 GETjson(url, path)
             }, payload $location $nearby_weather_stations $pws $station $id, 1:nstations)
             ## observation <- payload $current_observation
@@ -213,7 +221,7 @@ server <- function(input, output) {
     ## geolookup id
     GETgeolookup <- reactive({
         shiny::validate(need(!is.na(rV $id), 'missing geolookup id'))
-        payload <- GETjson(url, WUpath('geolookup', rV $id, 'json'))
+        payload <- GETjson(url, WUpath(input $key, 'geolookup', rV $id, 'json'))
         shiny::validate(need(is.null(payload $response $error), payload $response $error $description))
         payload
     })
@@ -246,6 +254,12 @@ server <- function(input, output) {
     output $download <- downloadHandler(
         function() paste0('hlwx-', Sys.Date(), '.rds'),
         function(fname) saveRDS(structure(list(conditions=GETconditions(), id=rV $id), class='hlwx'), fname))
+        ## html
+    output $html <- renderUI({
+        if(input $sidebar=='Settings') {
+            tags $iframe(id='iframe', src=urlKey, height=plotHeight, width=plotWidth)
+        }
+    })
     ## info--reacts to hover
     ## output $info <- renderText({with(input, paste0('y ', input $hover $y,
     ##                                                ' x ', input $hover $x))
