@@ -12,15 +12,17 @@ library(sp)
 
 
 ## BUGS:
-## spaces in city names crash geolookup;  replace with underscores
 ## clicking in rural area "incorrect number of dimensions"; problem with empty osm or wu query?
+## "                      "missing value where TRUE/FALSE needed"; seems to be problem with WU query
+
+
 
 
 ## constants and globals
 ## apiKey <- '336ecccce05d4dc4'
 url <- 'http://api.wunderground.com'
 urlKey <- paste(url, 'weather/api/d/pricing.html', sep='/')
-choices <- c('temp_f', 'wind_mph')
+choices <- c('temp_f', 'relative_humidity', 'pressure_in', 'dewpoint_f', 'head_index_f', 'precip_1hr_in', 'precip_today_in')
 highways <- c('motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'unclassified', 'residential')
 ## usTerritories <- c(33, 54, 55) # only necessary with US census maps
 nstates <- 51 # for selecting all states+DC from naturalearth
@@ -37,7 +39,7 @@ adm1 <- st_read('resources/ne_10m_admin_1_states_provinces_lakes')
 adm1 <- st_transform(adm1, espg)
 usAdm1 <- adm1[adm1 $iso_a2=='US', ]
 usAdm1 <- with(usAdm1, usAdm1[order(name), ]) # 4-color assignment is in alpha order
-usAdm1 $color <- factor(c(2, 1, 4, 3, 1, 2, 3, 3, 4, 1, 4, 4, 2, 4, 1, 3, 1, 2, 1, 1, 2, 4, 4, 4, 4, 2, 4, 4, 3, 4, 1, 3, 4, 2, 2, 3, 4, 4, 2, 1, 1, 1, 1, 2, 1, 1, 3, 1, 1, 1, 3))
+usAdm1 $color <- factor(c(2, 1, 4, 3, 1, 2, 3, 3, 4, 1, 4, 4, 2, 4, 1, 3, 1, 2, 1, 1, 4, 2, 4, 4, 4, 2, 4, 4, 3, 4, 1, 3, 4, 2, 2, 3, 4, 4, 2, 1, 1, 1, 1, 2, 1, 1, 3, 1, 1, 1, 3))
 ## usAdm1 colors
 col <- brewer.pal(4, 'Pastel1')[as.numeric(usAdm1 $color)]
 
@@ -115,7 +117,7 @@ ui <- fluidPage(
                     "Analyze",
                     textInput(inputId='res', label='resolution in meters', width='140px',
                               value='100', placeholder='100'),
-                    radioButtons(inputId='y', label='metric', choices=choices, selected='temp_f'),
+                    selectInput(inputId='y', label='metric', choices=choices, selected='temp_f'),
                     actionButton(inputId='analyze', label='analyze')
                 ),
                 tabPanel(
@@ -193,10 +195,11 @@ server <- function(input, output) {
     })
     ## geolookup
     observeEvent(input $geolookup, {
-        if(!is.na(as.numeric(input $zip))) {
-            shiny::validate(need(nchar(input $zip)==5, 'zip code must be 5 digits'))
+        place <- gsub(' ', '_', input $zip)
+        if(!is.na(as.numeric(place))) {
+            shiny::validate(need(nchar(place)==5, 'zip code must be 5 digits'))
         } # rV $id <- paste0(usAdm1[rV $main, 'postal'], '/', input $zip)
-        rV $id <- input $zip
+        rV $id <- place
     })
     ## get
     observeEvent(input $get, {
@@ -223,6 +226,7 @@ server <- function(input, output) {
         shiny::validate(need(!is.na(rV $id), 'missing geolookup id'))
         payload <- GETjson(url, WUpath(input $key, 'geolookup', rV $id, 'json'))
         shiny::validate(need(is.null(payload $response $error), payload $response $error $description))
+        shiny::validate(need(!is.null(nrow(payload $location $nearby_weather_stations $pws $station)), paste0('no personal weather stations found at ', rV $id)))
         payload
     })
     ## conditions
