@@ -11,13 +11,6 @@ library(sf)
 library(sp)
 
 
-## BUGS:
-## clicking in rural area "incorrect number of dimensions"; problem with empty osm or wu query?
-## "                      "missing value where TRUE/FALSE needed"; seems to be problem with WU query
-
-
-
-
 ## constants and globals
 ## apiKey <- '336ecccce05d4dc4'
 url <- 'http://api.wunderground.com'
@@ -51,7 +44,7 @@ cities <- st_transform(cities, espg)
 ## functions
 GETjson <- function(url, path) {
     response <- GET(url=url, path=path)
-    fromJSON(rawToChar(response $content)) # parsed payload
+    fromJSON(rawToChar(response $content))
 }
 
 GETosm <- function(aabb, key='.') {
@@ -80,7 +73,10 @@ aabb <- function(bbox) { # a bbox reproportioned to match plot dimensions
     ylim <- ylim(bbox)
     xlen <- abs(xlim[1]-xlim[2])
     ylen <- abs(ylim[1]-ylim[2])
-    if(xlen/ylen < plotWidth/plotHeight) {
+    if(is.na(xlen/ylen)) { # if only one point, create small area
+        return(aabb(c(xlim[1], ylim[1], xlim[2], ylim[2]) + c(-1, -1, 1, 1)))
+    }
+    if(xlen/ylen < plotWidth/plotHeight) { # rescale bbox to width/height ratio
         xlim <- extendrange(xlim, f=(plotWidth/plotHeight * ylen/xlen)-1)
     } else ylim <- extendrange(ylim, f=(plotHeight/plotWidth * xlen/ylen)-1)
     x <- c(1, 1, 2, 2, 1)
@@ -195,10 +191,12 @@ server <- function(input, output) {
     })
     ## geolookup
     observeEvent(input $geolookup, {
+        ## TODO: handle missing state
+        ## rV $id <- paste0(usAdm1[rV $main, 'postal'], '/', input $zip)
         place <- gsub(' ', '_', input $zip)
         if(!is.na(as.numeric(place))) {
             shiny::validate(need(nchar(place)==5, 'zip code must be 5 digits'))
-        } # rV $id <- paste0(usAdm1[rV $main, 'postal'], '/', input $zip)
+        }
         rV $id <- place
     })
     ## get
@@ -236,6 +234,7 @@ server <- function(input, output) {
     })
     ## analysis
     analyze <- eventReactive(input $analyze, {
+        ## conditions may not be numeric
         payload <- GETgeolookup()
         conditions <- GETconditions()
         bbox <- st_bbox(coords(payload))
@@ -286,7 +285,8 @@ server <- function(input, output) {
                    if(!is.na(rV $id)) { # viewing data
                        payload <- GETgeolookup()
                        coords <- coords(payload)
-                       bbox <- st_bbox(coords)
+                       ## bbox <= aabb; set lims with bbox and query with aabb to guarantee coverage
+                       bbox <- st_bbox(coords) # single stations no bbox and no plot(usAdm1)
                        plot(usAdm1[, 'color'], xlim=bbox[c(1, 3)], ylim=bbox[c(2, 4)],
                             col=col, main=NA, border=NA, graticule=st_crs(4326), axes=TRUE, lwd.tick=0)
                        plot(coords, pch=13, cex=2, col=1, add=TRUE)
@@ -319,7 +319,7 @@ server <- function(input, output) {
                                         osm $osm_lines[highway %in% highways, ])
                        plot(st_geometry(st_transform(highways, espg)), xlim=bbox[c(1, 3)], ylim=bbox[c(2, 4)],
                             col='grey50', axes=TRUE)
-                   } ## else ## plot(aabb, lwd=0, xlim=bbox[c(1, 3)], ylim=bbox[c(2, 4)], axes=TRUE)
+                   }
                    plot(m, col=bpy.colors(alpha=0.5), what='image', add=TRUE)
                    plot(coords, pch=13, cex=2, col='chartreuse', add=TRUE)
                    plot(m, col=bpy.colors(alpha=0.5), what='scale')
