@@ -134,7 +134,7 @@ ui <- fluidPage(
 
 
 ## server
-server <- function(input, output) {
+server <- function(input, output, session) {
     ## reactive values
     ## observers
     ##   click         # input handlers
@@ -178,12 +178,13 @@ server <- function(input, output) {
         }
     })
     ## upload
-    observe({ ## geolookup validates id, and upload needs to set rV $id
+    observe({ ## geolookup validates id, so upload needs to set rV $id
         upload <- input $upload
         if(!is.null(upload)) {
             upload <- readRDS(upload $datapath)
             rV $conditions <- upload $conditions
             rV $id <- upload $id
+            updateTextInput(session, 'key', value=upload $key)
         }
     })
     ## geolookup
@@ -254,7 +255,12 @@ server <- function(input, output) {
         conditions <- t(conditions)
         spd <- SpatialPointsDataFrame(conditions[, c('lon', 'lat')], data.frame(y=conditions[, 'y']),
                                       proj4string=CRS(wsg84String))
+        spd <- spd[!is.na(spd $y), ]
         spd <- spd[spd $y>=0, ] # != -9999
+        shiny::validate(need(nrow(spd)>1,
+                             paste0('only 1 station reporting: ', input $y, ' is ', spd $y)))
+        shiny::validate(need(var(spd $y)>0,
+                             paste0('all stations reporting: ', input $y, ' is ', spd $y[1])))
         spd <- spTransform(spd, proj4string(s))
         idw(y~1, spd, s)
     })
@@ -263,7 +269,9 @@ server <- function(input, output) {
     ## download
     output $download <- downloadHandler(
         function() paste0('hlwx-', Sys.Date(), '.rds'),
-        function(fname) saveRDS(structure(list(conditions=GETconditions(), id=rV $id)), fname))
+        function(fname) saveRDS(structure(list(conditions=GETconditions(), id=rV $id, key=input $key)),
+                                fname)
+    )
     ## html
     output $html <- renderUI({
         if(input $sidebar=='Settings') {
