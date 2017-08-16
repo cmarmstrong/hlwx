@@ -73,9 +73,6 @@ aabb <- function(bbox) { # a bbox reproportioned to match plot dimensions
     ylim <- ylim(bbox)
     xlen <- abs(xlim[1]-xlim[2])
     ylen <- abs(ylim[1]-ylim[2])
-    if(is.na(xlen/ylen)) { # if only one point, create small area
-        return(aabb(c(xlim[1], ylim[1], xlim[2], ylim[2]) + c(-1, -1, 1, 1)))
-    }
     if(xlen/ylen < plotWidth/plotHeight) { # rescale bbox to width/height ratio
         xlim <- extendrange(xlim, f=(plotWidth/plotHeight * ylen/xlen)-1)
     } else ylim <- extendrange(ylim, f=(plotHeight/plotWidth * xlen/ylen)-1)
@@ -242,19 +239,22 @@ server <- function(input, output) {
         g <- st_make_grid(aabb(bbox), cellsize=as.numeric(input $res), what='corners')
         s <- as(g, 'Spatial') # 'SpatialGridDataFrame' or 'SpatialPixelsDataFrame'
         gridded(s) <- TRUE
-        conditions <- apply(conditions, 2, function(pws) {
-            with(pws $current_observation $display_location,
-                 c(lon=longitude, lat=latitude, y=display_location[[input $y]]))
+        conditions <- apply(conditions, 2, function(pws) { # reshape conditions to: lon, lat, y
+            with(pws $current_observation,
+                 c(with(display_location, c(lon=longitude, lat=latitude)),
+                   y=get(input $y)))
         })
-        conditions <- apply(conditions, 1, function(pws) { # doesn't handle negative values of y
-            if(pws $y=='NA')
-            switch(input $y,
-                   relative_humidity=with(pws, as.numeric(c(lon, lat, substr(y, 1, nchar(y)-1)))),
-                   as.numeric(pws))
+        conditions <- apply(conditions, 2, function(pws) { # coerce y to numeric or NA
+            y <- pws['y']
+            pws['y'] <- switch(input $y,
+                               relative_humidity=substr(y, 1, nchar(y)-1),
+                               y)
+            setNames(as.numeric(pws), names(pws))
         })
-        spd <- SpatialPointsDataFrame(conditions[, 1:2], data.frame(y=conditions[, 3]),
+        conditions <- t(conditions)
+        spd <- SpatialPointsDataFrame(conditions[, c('lon', 'lat')], data.frame(y=conditions[, 'y']),
                                       proj4string=CRS(wsg84String))
-        spd <- spd[spd $y!=-9999, ]
+        spd <- spd[spd $y>=0, ] # != -9999
         spd <- spTransform(spd, proj4string(s))
         idw(y~1, spd, s)
     })
@@ -263,7 +263,7 @@ server <- function(input, output) {
     ## download
     output $download <- downloadHandler(
         function() paste0('hlwx-', Sys.Date(), '.rds'),
-        function(fname) saveRDS(structure(list(conditions=GETconditions(), id=rV $id), class='hlwx'), fname))
+        function(fname) saveRDS(structure(list(conditions=GETconditions(), id=rV $id)), fname))
     ## html
     output $html <- renderUI({
         if(input $sidebar=='Settings') {
