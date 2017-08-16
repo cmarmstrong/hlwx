@@ -15,7 +15,7 @@ library(sp)
 ## apiKey <- '336ecccce05d4dc4'
 url <- 'http://api.wunderground.com'
 urlKey <- paste(url, 'weather/api/d/pricing.html', sep='/')
-choices <- c('temp_f', 'relative_humidity', 'pressure_in', 'dewpoint_f', 'head_index_f', 'precip_1hr_in', 'precip_today_in')
+choices <- c('temp_f', 'relative_humidity', 'pressure_in', 'dewpoint_f', 'heat_index_f', 'precip_1hr_in', 'precip_today_in')
 highways <- c('motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'unclassified', 'residential')
 ## usTerritories <- c(33, 54, 55) # only necessary with US census maps
 nstates <- 51 # for selecting all states+DC from naturalearth
@@ -224,7 +224,8 @@ server <- function(input, output) {
         shiny::validate(need(!is.na(rV $id), 'missing geolookup id'))
         payload <- GETjson(url, WUpath(input $key, 'geolookup', rV $id, 'json'))
         shiny::validate(need(is.null(payload $response $error), payload $response $error $description))
-        shiny::validate(need(!is.null(nrow(payload $location $nearby_weather_stations $pws $station)), paste0('no personal weather stations found at ', rV $id)))
+        shiny::validate(need(nrow(payload $location $nearby_weather_stations $pws $station)>1,
+                             paste0('1 or 0 personal weather stations found at ', rV $id)))
         payload
     })
     ## conditions
@@ -241,10 +242,16 @@ server <- function(input, output) {
         g <- st_make_grid(aabb(bbox), cellsize=as.numeric(input $res), what='corners')
         s <- as(g, 'Spatial') # 'SpatialGridDataFrame' or 'SpatialPixelsDataFrame'
         gridded(s) <- TRUE
-        conditions <- sapply(conditions[seq(2, length(conditions), 2)], function(obs) {
-            c(with(obs $display_location, c(longitude, latitude)), obs[[input $y]])
+        conditions <- apply(conditions, 2, function(pws) {
+            with(pws $current_observation $display_location,
+                 c(lon=longitude, lat=latitude, y=display_location[[input $y]]))
         })
-        conditions <- apply(conditions, 1, as.numeric)
+        conditions <- apply(conditions, 1, function(pws) { # doesn't handle negative values of y
+            if(pws $y=='NA')
+            switch(input $y,
+                   relative_humidity=with(pws, as.numeric(c(lon, lat, substr(y, 1, nchar(y)-1)))),
+                   as.numeric(pws))
+        })
         spd <- SpatialPointsDataFrame(conditions[, 1:2], data.frame(y=conditions[, 3]),
                                       proj4string=CRS(wsg84String))
         spd <- spd[spd $y!=-9999, ]
@@ -285,12 +292,11 @@ server <- function(input, output) {
                    if(!is.na(rV $id)) { # viewing data
                        payload <- GETgeolookup()
                        coords <- coords(payload)
-                       ## bbox <= aabb; set lims with bbox and query with aabb to guarantee coverage
-                       bbox <- st_bbox(coords) # single stations no bbox and no plot(usAdm1)
+                       bbox <- st_bbox(coords)
                        plot(usAdm1[, 'color'], xlim=bbox[c(1, 3)], ylim=bbox[c(2, 4)],
                             col=col, main=NA, border=NA, graticule=st_crs(4326), axes=TRUE, lwd.tick=0)
                        plot(coords, pch=13, cex=2, col=1, add=TRUE)
-                       aabb <- aabb(bbox)
+                       aabb <- aabb(bbox) # bbox expanded to plot window
                        osm <- GETosm(aabb)
                        if(nrow(osm $osm_lines)>0) { # if query is not empty
                            highways <- with(osm $osm_lines,
