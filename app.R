@@ -12,12 +12,10 @@ library(sp)
 
 
 ## constants and globals
-## apiKey <- '336ecccce05d4dc4'
 url <- 'http://api.wunderground.com'
 urlKey <- paste(url, 'weather/api/d/pricing.html', sep='/')
 choices <- c('temp_f', 'relative_humidity', 'pressure_in', 'dewpoint_f', 'heat_index_f', 'precip_1hr_in', 'precip_today_in')
 highways <- c('motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'unclassified', 'residential')
-## usTerritories <- c(33, 54, 55) # only necessary with US census maps
 nstates <- 51 # for selecting all states+DC from naturalearth
 ## plot
 limBuff <- 0.05
@@ -210,7 +208,6 @@ server <- function(input, output, session) {
                 path <- WUpath(input $key, 'conditions', paste('pws', id, sep=':'), 'json')
                 GETjson(url, path)
             }, payload $location $nearby_weather_stations $pws $station $id, 1:nstations)
-            ## observation <- payload $current_observation
             incProgress(1, message='finishing', detail=NULL)
             rV $conditions <- conditions
         })
@@ -233,12 +230,11 @@ server <- function(input, output, session) {
     })
     ## analysis
     analyze <- eventReactive(input $analyze, {
-        ## conditions may not be numeric
         payload <- GETgeolookup()
         conditions <- GETconditions()
         bbox <- st_bbox(coords(payload))
         g <- st_make_grid(aabb(bbox), cellsize=as.numeric(input $res), what='corners')
-        s <- as(g, 'Spatial') # 'SpatialGridDataFrame' or 'SpatialPixelsDataFrame'
+        s <- as(g, 'Spatial')
         gridded(s) <- TRUE
         conditions <- apply(conditions, 2, function(pws) { # reshape conditions to: lon, lat, y
             with(pws $current_observation,
@@ -329,10 +325,9 @@ server <- function(input, output, session) {
                    osm <- GETosm(aabb)
                    layout(matrix(1:2, nrow=1), widths=c(5, 1))
                    if(nrow(osm $osm_lines)>0) {
-                       highways <- with(osm $osm_lines,
-                                        osm $osm_lines[highway %in% highways, ])
-                       plot(st_geometry(st_transform(highways, espg)), xlim=bbox[c(1, 3)], ylim=bbox[c(2, 4)],
-                            col='grey50', axes=TRUE)
+                       highways <- with(osm $osm_lines, osm $osm_lines[highway %in% highways, ])
+                       plot(st_geometry(st_transform(highways, espg)),
+                            xlim=bbox[c(1, 3)], ylim=bbox[c(2, 4)], col='grey50', axes=TRUE)
                    }
                    plot(m, col=bpy.colors(alpha=0.5), what='image', add=TRUE)
                    plot(coords, pch=13, cex=2, col='chartreuse', add=TRUE)
@@ -345,8 +340,3 @@ server <- function(input, output, session) {
 
 ## main
 shinyApp(ui=ui, server=server)
-
-## myshp2 <- st_read('resources/cb_2016_us_zcta510_500k', 'cb_2016_us_zcta510_500k')
-## plot(myshp[myshp $ZCTA5CE10=='61821', ])
-## myshp[-c(33:34, 54:56), 'NAME']
-## st_transform(x, 3174) ## GL, TX:3083
